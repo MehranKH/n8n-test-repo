@@ -2,6 +2,12 @@
 
 import * as React from "react"
 
+import {
+  Alert,
+  AlertDescription,
+  AlertIcon,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -11,191 +17,233 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Link } from "@/components/ui/link"
 import { PasswordField } from "@/components/ui/password-field"
 import { TextField } from "@/components/ui/text-field"
 
-export type RegisterFormValues = {
+/* ------------------------------------------------------------------ *
+ * نوع‌ها و منطق اعتبارسنجی (فقط سمت کلاینت)
+ * ------------------------------------------------------------------ */
+
+type RegisterValues = {
   fullName: string
-  mobile: string
+  email: string
   password: string
+  confirmPassword: string
 }
 
-type RegisterFormProps = {
-  /** وقتی همهٔ فیلدها معتبر بودند با مقدارهای نهایی صدا زده می‌شود. */
-  onSubmit?: (values: RegisterFormValues) => void
-  /** نشانی صفحهٔ قوانین و مقررات. */
-  termsHref?: string
-  /** نشانی صفحهٔ ورود. */
-  loginHref?: string
+type RegisterErrors = Partial<Record<keyof RegisterValues, string>>
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function validate(values: RegisterValues): RegisterErrors {
+  const errors: RegisterErrors = {}
+
+  const fullName = values.fullName.trim()
+  if (!fullName) {
+    errors.fullName = "نام و نام خانوادگی الزامی است."
+  } else if (fullName.length < 3) {
+    errors.fullName = "نام و نام خانوادگی باید حداقل ۳ نویسه باشد."
+  }
+
+  const email = values.email.trim()
+  if (!email) {
+    errors.email = "ایمیل الزامی است."
+  } else if (!EMAIL_PATTERN.test(email)) {
+    errors.email = "یک ایمیل معتبر وارد کنید."
+  }
+
+  if (!values.password) {
+    errors.password = "رمز عبور الزامی است."
+  } else if (values.password.length < 8) {
+    errors.password = "رمز عبور باید حداقل ۸ نویسه باشد."
+  }
+
+  if (!values.confirmPassword) {
+    errors.confirmPassword = "تکرار رمز عبور الزامی است."
+  } else if (values.confirmPassword !== values.password) {
+    errors.confirmPassword = "تکرار رمز عبور با رمز عبور یکسان نیست."
+  }
+
+  return errors
 }
 
-/** شمارهٔ موبایل ایران: ۰۹ + ۹ رقم. */
-const MOBILE_PATTERN = /^09\d{9}$/
+/** شبیه‌سازی درخواست ثبت‌نام؛ این نسخه صرفاً فرانت‌اند است. */
+async function simulateRegister(_payload: RegisterValues): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 900))
+}
 
-/**
- * فرم «ساخت حساب کاربری»: نام، شماره موبایل، رمز عبور (با قدرت و شرط‌ها)،
- * تکرار رمز و پذیرش قوانین. فیلد موبایل با faDigits ارقام فارسی را می‌پذیرد و
- * مقدار لاتین (۰۹۱۲...) بیرون می‌دهد.
- */
-export function RegisterForm({
-  onSubmit,
-  termsHref = "#",
-  loginHref = "#",
-}: RegisterFormProps) {
-  const [fullName, setFullName] = React.useState("")
-  const [mobile, setMobile] = React.useState("")
-  const [password, setPassword] = React.useState("")
-  const [passwordConfirm, setPasswordConfirm] = React.useState("")
-  const [acceptedTerms, setAcceptedTerms] = React.useState(false)
-  const [submitted, setSubmitted] = React.useState(false)
+/* ------------------------------------------------------------------ *
+ * کامپوننت فرم ثبت‌نام
+ * ------------------------------------------------------------------ */
 
-  const trimmedName = fullName.trim()
-  const nameError = !trimmedName
-    ? "نام و نام خانوادگی را وارد کنید."
-    : trimmedName.length < 3
-      ? "نام باید دست‌کم ۳ نویسه باشد."
-      : undefined
+type SubmitStatus = "idle" | "submitting" | "success" | "error"
 
-  const normalizedMobile = mobile.trim()
-  const mobileError = !normalizedMobile
-    ? "شماره موبایل را وارد کنید."
-    : !MOBILE_PATTERN.test(normalizedMobile)
-      ? "شماره موبایل باید با ۰۹ شروع شود و ۱۱ رقم باشد."
-      : undefined
+const INITIAL_VALUES: RegisterValues = {
+  fullName: "",
+  email: "",
+  password: "",
+  confirmPassword: "",
+}
 
-  const passwordError = !password ? "رمز عبور را وارد کنید." : undefined
+export function RegisterForm() {
+  const [values, setValues] = React.useState<RegisterValues>(INITIAL_VALUES)
+  const [errors, setErrors] = React.useState<RegisterErrors>({})
+  const [status, setStatus] = React.useState<SubmitStatus>("idle")
+  const [submitError, setSubmitError] = React.useState<string | null>(null)
 
-  const confirmTouched = submitted || passwordConfirm.length > 0
-  const confirmError = !passwordConfirm
-    ? submitted
-      ? "تکرار رمز عبور را وارد کنید."
-      : undefined
-    : passwordConfirm !== password
-      ? "تکرار رمز عبور با رمز عبور یکسان نیست."
-      : undefined
+  const isSuccess = status === "success"
 
-  const termsError = !acceptedTerms
-    ? "پذیرش قوانین برای ثبت‌نام الزامی است."
-    : undefined
+  // بعد از موفقیت، ارسالِ دوباره ممکن نباشد و با unmount هم setState نزنیم.
+  const mountedRef = React.useRef(true)
+  React.useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
-  const hasError = Boolean(
-    nameError || mobileError || passwordError || confirmError || termsError,
-  )
+  const updateField =
+    (field: keyof RegisterValues) => (value: string) => {
+      setValues((previous) => ({ ...previous, [field]: value }))
+      // به‌محض ویرایش یک فیلد نامعتبر، خطای همان فیلد پاک می‌شود تا بازخورد
+      // اعتبارسنجی زنده و روان بماند.
+      setErrors((previous) => {
+        if (!(field in previous)) return previous
+        const next = { ...previous }
+        delete next[field]
+        return next
+      })
+    }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setSubmitted(true)
-    if (hasError) return
-    onSubmit?.({
-      fullName: trimmedName,
-      mobile: normalizedMobile,
-      password,
-    })
+    if (status === "submitting" || isSuccess) return
+
+    const nextErrors = validate(values)
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) return
+
+    setStatus("submitting")
+    setSubmitError(null)
+
+    try {
+      await simulateRegister(values)
+      if (mountedRef.current) setStatus("success")
+    } catch {
+      if (!mountedRef.current) return
+      setStatus("error")
+      setSubmitError("ثبت‌نام انجام نشد؛ لطفاً دوباره تلاش کنید.")
+    }
+  }
+
+  // حالت موفقیت: فرم کامل می‌شود و فقط پیام موفقیت و لینک ورود می‌ماند.
+  if (isSuccess) {
+    return (
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>حساب شما ساخته شد</CardTitle>
+          <CardDescription>به جمع کاربران خوش آمدید.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Alert color="success">
+            <AlertIcon />
+            <AlertTitle>ثبت‌نام با موفقیت انجام شد</AlertTitle>
+            <AlertDescription>
+              حساب شما آماده است؛ حالا می‌توانید وارد شوید.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+        <CardFooter className="justify-center">
+          <Link href="/login">وارد شوید</Link>
+        </CardFooter>
+      </Card>
+    )
   }
 
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle>ساخت حساب کاربری</CardTitle>
-        <CardDescription>برای شروع، اطلاعات زیر را وارد کنید.</CardDescription>
+        <CardDescription>برای شروع، اطلاعات خود را وارد کنید.</CardDescription>
       </CardHeader>
 
-      <form onSubmit={handleSubmit} noValidate>
-        <CardContent className="flex flex-col gap-5">
+      <CardContent>
+        <form onSubmit={handleSubmit} noValidate className="grid gap-4">
+          {status === "error" && submitError && (
+            <Alert color="destructive">
+              <AlertIcon />
+              <AlertTitle>خطا در ثبت‌نام</AlertTitle>
+              <AlertDescription>{submitError}</AlertDescription>
+            </Alert>
+          )}
+
           <TextField
             label="نام و نام خانوادگی"
-            required
-            placeholder="مثلاً امیر محمدی"
-            value={fullName}
-            onValueChange={setFullName}
+            name="fullName"
             autoComplete="name"
-            invalid={submitted && Boolean(nameError)}
-            errorMessage={submitted ? nameError : undefined}
+            required
+            invalid={Boolean(errors.fullName)}
+            errorMessage={errors.fullName}
+            value={values.fullName}
+            onValueChange={updateField("fullName")}
+            placeholder="مثلاً علی رضایی"
           />
 
           <TextField
-            label="شماره موبایل"
+            label="ایمیل"
+            name="email"
+            type="email"
+            autoComplete="email"
             required
-            type="tel"
-            faDigits
-            maxLength={11}
-            placeholder="۰۹۱۲۳۴۵۶۷۸۹"
-            value={mobile}
-            onValueChange={setMobile}
-            autoComplete="tel"
-            invalid={submitted && Boolean(mobileError)}
-            errorMessage={submitted ? mobileError : undefined}
+            invalid={Boolean(errors.email)}
+            errorMessage={errors.email}
+            value={values.email}
+            onValueChange={updateField("email")}
+            placeholder="you@example.com"
           />
 
           <PasswordField
             label="رمز عبور"
-            required
-            revealToggle
-            strength
-            requirements
-            placeholder="یک رمز عبور قوی بسازید"
+            name="password"
             autoComplete="new-password"
-            value={password}
-            onValueChange={setPassword}
-            invalid={submitted && Boolean(passwordError)}
-            errorMessage={submitted ? passwordError : undefined}
+            required
+            description="حداقل ۸ نویسه"
+            invalid={Boolean(errors.password)}
+            errorMessage={errors.password}
+            value={values.password}
+            onValueChange={updateField("password")}
           />
 
           <PasswordField
             label="تکرار رمز عبور"
-            required
-            revealToggle
-            placeholder="دوباره رمز عبور را بنویسید"
+            name="confirmPassword"
             autoComplete="new-password"
-            value={passwordConfirm}
-            onValueChange={setPasswordConfirm}
-            invalid={Boolean(confirmError) && confirmTouched}
-            errorMessage={confirmTouched ? confirmError : undefined}
+            required
+            invalid={Boolean(errors.confirmPassword)}
+            errorMessage={errors.confirmPassword}
+            value={values.confirmPassword}
+            onValueChange={updateField("confirmPassword")}
           />
 
-          <div className="flex flex-col gap-2">
-            <div className="flex items-start gap-2.5">
-              <Checkbox
-                id="accept-terms"
-                className="mt-0.5"
-                checked={acceptedTerms}
-                onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
-                invalid={submitted && Boolean(termsError)}
-              />
-              <label
-                htmlFor="accept-terms"
-                className="text-sm leading-6 text-muted-foreground"
-              >
-                <Link href={termsHref} underline="hover">
-                  قوانین و مقررات
-                </Link>
-                {" "}را می‌پذیرم
-              </label>
-            </div>
-            {submitted && termsError ? (
-              <p role="alert" className="text-xs text-destructive">
-                {termsError}
-              </p>
-            ) : null}
-          </div>
-        </CardContent>
-
-        <CardFooter className="flex-col items-stretch gap-4">
-          <Button type="submit" size="lg" fullWidth>
+          <Button
+            type="submit"
+            fullWidth
+            loading={status === "submitting"}
+            className="mt-2"
+          >
             ثبت‌نام
           </Button>
-          <p className="text-center text-sm text-muted-foreground">
-            قبلاً حساب دارید؟{" "}
-            <Link href={loginHref} underline="hover">
-              ورود
-            </Link>
-          </p>
-        </CardFooter>
-      </form>
+        </form>
+      </CardContent>
+
+      <CardFooter className="justify-center gap-1">
+        <span className="text-sm text-muted-foreground">
+          قبلاً حساب کاربری ساخته‌اید؟
+        </span>
+        <Link href="/login" size="sm">
+          وارد شوید
+        </Link>
+      </CardFooter>
     </Card>
   )
 }
-
-export default RegisterForm
